@@ -3,8 +3,14 @@
  * 		ALAN MAURICIO MORALES LÓPEZ
  * 		LUIS ADRIÁN GONZALEZ FALCÓN
  * 		YASSER VLADIMIR CRUZ MIRANDA
- * DESCRIPCION: SCRIPT DDL PARA LA BASE DE DATOS 'EL_BUEN_RETIRO'
+ * DESCRIPCION: SCRIPT DML (VISTAS, TRIGGERS Y PROCEDIMIENTOS) PARA LA BASE DE DATOS 'EL_BUEN_RETIRO'
  * FECHA: 26/11/2025
+ *
+ * REVISION (2026):
+ *   - vis_cliente: se agrego el esquema a la tabla CLIENTE.CLIENTE.
+ *   - tg_asigna_corredor_zona: faltaba el GO al final y no se debe insertar num_poliza (IDENTITY).
+ *   - tg_beneficiarios: al ser AFTER, el conteo y la suma ya incluyen la fila nueva,
+ *     asi que se valida > 5 beneficiarios y porcentaje > 100 %.
  */
 
 USE [EL_BUEN_RETIRO]
@@ -33,7 +39,7 @@ SELECT c.cliente_id, c.nombre, c.apellido_pat, c.apellido_mat, c.tipo_cliente,
 		END) AS 'edad', c.fecha_nacimiento,
 		d.calle, d.num_ext, ISNULL(CAST(d.num_int AS VARCHAR(20)), 'Sin numero int') AS 'num_int',
 		col.nombre_colonia, col.codigo_postal, m.nombre_municipio, e.nombre_estado
-FROM CLIENTE c
+FROM CLIENTE.CLIENTE c
 INNER JOIN CLIENTE.DIRECCION d
 ON c.direccion_id = d.direccion_id
 INNER JOIN CATALOGO.COLONIA col
@@ -114,9 +120,9 @@ BEGIN
 		WHERE codigo_postal = @v_codigo_postal_cliente
 		
 		-- Se realiza la inserción
-		INSERT INTO VENTAS.POLIZA (num_poliza, saldo_pend, cliente_id, fecha_ini, fecha_fin, 
+		INSERT INTO VENTAS.POLIZA (saldo_pend, cliente_id, fecha_ini, fecha_fin,
 												prima_total, num_empleado, matricula, clave_seguro)
-		SELECT num_poliza, saldo_pend, cliente_id, fecha_ini, fecha_fin, prima_total, @v_num_empleado, matricula, clave_seguro 
+		SELECT saldo_pend, cliente_id, fecha_ini, fecha_fin, prima_total, @v_num_empleado, matricula, clave_seguro
 		FROM INSERTED
 		
 	END
@@ -144,6 +150,7 @@ BEGIN
 		FROM INSERTED;
 	END
 END
+GO
 
 /*
  * Trigger que valida la edad de contratación
@@ -293,34 +300,26 @@ BEGIN
 		FROM VENTAS.BENEFICIARIO_POLIZA bp
 		WHERE bp.num_poliza = @v_num_poliza
 		
-		IF (@v_cantidad_beneficiarios = 5)
+		-- Al ser un trigger AFTER, el conteo y la suma ya incluyen la fila insertada/actualizada
+		IF (@v_cantidad_beneficiarios > 5)
 		BEGIN
-			raiserror('Error, no se pueden asociar más de 5 benefiarios al seguro.',10,1);
+			raiserror('Error, no se pueden asociar más de 5 beneficiarios al seguro.',16,1);
 			rollback transaction;
+			RETURN;
 		END
-		
-    IF EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM deleted) -- Cuando es INSERT
-    BEGIN
-    	IF (@v_porcentaje_total + (SELECT porcentaje FROM INSERTED) > 1) -- Si la suma de los porcentaje mas el nuevo, es > 1
-			BEGIN
-				raiserror('Error, no se pueden asociar más de 5 benefiarios al seguro.',10,1);
-				rollback transaction;
-			END
-    END
-    ELSE IF EXISTS (SELECT 1 FROM inserted) AND EXISTS (SELECT 1 FROM deleted) -- Cuando es UPDATE
-    BEGIN
-    	IF (@v_porcentaje_total + (SELECT porcentaje FROM INSERTED) - (SELECT porcentaje FROM DELETED) > 1)  -- Si la suma de los porcentajes reemplazando el nuevo, es > 1
-			BEGIN
-				raiserror('Error, el porcentaje dado a los beneficiarios rebasa el 100%.',10,1);
-				rollback transaction;
-			END
-    END
+
+		IF (@v_porcentaje_total > 1) -- La suma de porcentajes no puede rebasar el 100 %
+		BEGIN
+			raiserror('Error, el porcentaje dado a los beneficiarios rebasa el 100%%.',16,1);
+			rollback transaction;
+			RETURN;
+		END
 	END
 	ELSE
 	BEGIN
-		raiserror('Error, no se pueden asociar benefiarios a un seguro que no es de vida.',10,1);
-		rollback transaction;		
-	END	
+		raiserror('Error, no se pueden asociar beneficiarios a un seguro que no es de vida.',16,1);
+		rollback transaction;
+	END
 END
 GO
 
