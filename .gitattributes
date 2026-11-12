@@ -1,0 +1,3 @@
+*.sql text linguist-language=TSQL
+*.dia binary
+*.DM1 binary
